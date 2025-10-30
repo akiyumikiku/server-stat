@@ -77,7 +77,7 @@ async function scanChannelsOnce(guild) {
 
     const topic = channel.topic || "";
     const match = topic.match(/\(user\s*-\s*(\d+)\)/i);
-    const overwrites = await channel.permissionOverwrites.fetch().catch(() => new Map());
+    const overwrites = channel.permissionOverwrites?.cache || new Map();
 
     if (match) {
       const userId = match[1];
@@ -113,9 +113,11 @@ async function applyRoleRestrictions(member) {
         if (!ch) continue;
 
         if (hasRole) {
+          // Nếu có role → block view
           await ch.permissionOverwrites.edit(member.id, { ViewChannel: false }).catch(() => {});
         } else {
-          const ow = (await ch.permissionOverwrites.fetch().catch(() => new Map())).get(member.id);
+          // Nếu mất role → bỏ chặn
+          const ow = ch.permissionOverwrites?.cache.get(member.id);
           if (ow) await ch.permissionOverwrites.delete(member.id).catch(() => {});
         }
       }
