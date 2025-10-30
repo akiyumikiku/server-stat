@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 // ====== CẤU HÌNH ROLE CHẶN KÊNH ======
 const ROLE_BLOCK_MAP = [
   {
-    roleId: "1410990099042271352", // role 1
+    roleId: "1410990099042271352", // role 1 → KHÔNG có role thì bị chặn
     blockedChannels: [
       "1411043248406794461", "1423207293335371776", "1411043297694060614",
       "1419725921363034123", "1411994491858063380", "1419989424904736880",
@@ -21,11 +21,11 @@ const ROLE_BLOCK_MAP = [
     ]
   },
   {
-    roleId: "1428899344010182756", // role 2
+    roleId: "1428899344010182756", // role 2 → KHÔNG có role thì bị chặn
     blockedChannels: ["1427958980059336774", "1431550495683514439"]
   },
   {
-    roleId: "1411991634194989096", // role đặc biệt (ngược logic)
+    roleId: "1411991634194989096", // role 3 → CÓ role thì bị chặn
     blockedChannels: [
       "1423207293335371776", "1419725921363034123",
       "1419989424904736880", "1419727338119368784",
@@ -76,18 +76,19 @@ async function scanChannelsOnce(guild) {
     if (channel.parentId === "1433101513915367638") continue; // ngoại lệ ticket support
 
     const topic = channel.topic || "";
-    const match = topic.match(/\b\d{17,20}\b/); // match ID user (nằm sau username)
+    // Giả sử topic dạng: username iduser
+    const match = topic.match(/\b(\d{17,20})\b/);
     const overwrites = channel.permissionOverwrites?.cache || new Map();
 
     if (match) {
-      const userId = match[0];
+      const userId = match[1];
       try {
-        // Xóa quyền cũ (nếu có)
+        // Xóa hết quyền của người khác
         for (const [targetId] of overwrites) {
           if (targetId !== userId)
             await channel.permissionOverwrites.delete(targetId).catch(() => {});
         }
-        // Cấp quyền xem riêng cho user
+        // Giữ lại cho đúng user
         await channel.permissionOverwrites.edit(userId, { ViewChannel: true }).catch(() => {});
         console.log(`✅ Giữ riêng ${channel.name} cho ${userId}`);
         fixed++;
@@ -95,7 +96,7 @@ async function scanChannelsOnce(guild) {
         console.warn(`⚠️ Lỗi xử lý kênh ${channel.name}:`, err.message);
       }
     } else {
-      // Nếu không có topic user → xóa các quyền member cũ
+      // Nếu không có user trong topic → xóa quyền member cá nhân
       for (const [targetId, overwrite] of overwrites) {
         if (overwrite.type === 1)
           await channel.permissionOverwrites.delete(targetId).catch(() => {});
@@ -165,9 +166,18 @@ client.once("ready", async () => {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.members.fetch();
 
-  await scanChannelsOnce(guild);
-  await updateCounters(true);
+  // ⭐ Quét toàn bộ member khi khởi động để đảm bảo đồng bộ quyền
+  console.log("🔄 Đang quét toàn bộ thành viên để áp dụng quyền role...");
+  for (const [_, member] of guild.members.cache) {
+    if (member.user.bot) continue;
+    await applyRoleRestrictions(member);
+  }
+  console.log("✅ Hoàn tất quét quyền role cho tất cả thành viên.");
 
+  await scanChannelsOnce(guild);  // Quét channel có topic
+  await updateCounters(true);     // Cập nhật counter
+
+  // Cập nhật counter mỗi 5 phút
   setInterval(() => updateCounters(true), 5 * 60 * 1000);
 });
 
