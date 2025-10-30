@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, PermissionFlagsBits } = require("discord.js");
 const express = require("express");
 
 const app = express();
@@ -17,32 +17,21 @@ const ROLE_BLOCK_MAP = [
   {
     roleId: "1410990099042271352",
     blockedChannels: [
-      "1411043248406794461",
-      "1423207293335371776",
-      "1411043297694060614",
-      "1419725921363034123",
-      "1411994491858063380",
-      "1419989424904736880",
-      "1419727338119368784",
-      "1419727361062076418",
-      "1411049384816148643",
+      "1411043248406794461", "1423207293335371776", "1411043297694060614",
+      "1419725921363034123", "1411994491858063380", "1419989424904736880",
+      "1419727338119368784", "1419727361062076418", "1411049384816148643",
       "1411049568979648553"
     ]
   },
   {
     roleId: "1428899344010182756",
-    blockedChannels: [
-      "1427958980059336774",
-      "1431550495683514439"
-    ]
+    blockedChannels: ["1427958980059336774", "1431550495683514439"]
   },
   {
-    roleId: "1411991634194989096", // role đặc biệt: có role thì bị chặn
+    roleId: "1411991634194989096",
     blockedChannels: [
-      "1423207293335371776",
-      "1419725921363034123",
-      "1419989424904736880",
-      "1419727338119368784",
+      "1423207293335371776", "1419725921363034123",
+      "1419989424904736880", "1419727338119368784",
       "1419727361062076418"
     ]
   }
@@ -76,9 +65,15 @@ async function updateCounters(online = true) {
   }
 }
 
-// ====== XỬ LÝ QUYỀN KÊNH THEO TOPIC (CHỈ CHẠY MỘT LẦN) ======
+// ====== QUÉT VÀ ĐỒNG BỘ QUYỀN KÊNH ======
 async function scanChannelsOnce(guild) {
   console.log("🔍 Đang quét và đồng bộ quyền kênh theo topic...");
+
+  // Đảm bảo đã fetch đủ dữ liệu kênh
+  if (!guild.channels?.cache?.size) {
+    await guild.channels.fetch().catch(() => {});
+  }
+
   const textChannels = guild.channels.cache.filter(ch => ch.isTextBased() && ch.type !== 4);
   let fixed = 0;
 
@@ -118,17 +113,15 @@ async function applyRoleRestrictions(member) {
   try {
     for (const cfg of ROLE_BLOCK_MAP) {
       const hasRole = member.roles.cache.has(cfg.roleId);
-      const isReverse = cfg.roleId === "1411991634194989096"; // role đặc biệt: có role thì bị chặn
-
       for (const chId of cfg.blockedChannels) {
         const ch = member.guild.channels.cache.get(chId);
         if (!ch) continue;
 
-        const shouldBlock = isReverse ? hasRole : !hasRole;
-
-        if (shouldBlock) {
+        if (hasRole) {
+          // Nếu có role → chặn kênh
           await ch.permissionOverwrites.edit(member.id, { ViewChannel: false }).catch(() => {});
         } else {
+          // Nếu không có role → bỏ chặn
           const ow = ch.permissionOverwrites.cache.get(member.id);
           if (ow) await ch.permissionOverwrites.delete(member.id).catch(() => {});
         }
@@ -159,10 +152,11 @@ client.once("ready", async () => {
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.members.fetch();
+  await guild.channels.fetch(); // ✅ fix lỗi undefined cache
 
   await scanChannelsOnce(guild);
-
   await updateCounters(true);
+
   setInterval(() => updateCounters(true), 5 * 60 * 1000);
 });
 
