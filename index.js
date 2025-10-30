@@ -19,7 +19,7 @@ const ROLE_BLOCK_MAP = [
     blockedChannels: ["1411043248406794461", "1423207293335371776", "1411043297694060614",
       "1419725921363034123", "1411994491858063380", "1419989424904736880",
       "1419727338119368784", "1419727361062076418", "1411049384816148643",
-      "1411049568979648553",]
+      "1411049568979648553"]
   },
   {
     roleId: "1428899344010182756",
@@ -27,9 +27,9 @@ const ROLE_BLOCK_MAP = [
   },
   {
     roleId: "1411991634194989096",
-    blockedChannels: ["19727338119368784", "1419727361062076418",
+    blockedChannels: ["1419727338119368784", "1419727361062076418",
       "1423207293335371776", "1419725921363034123",
-      "1419989424904736880",]
+      "1419989424904736880"]
   }
 ];
 
@@ -43,7 +43,8 @@ async function updateCounters(online = true) {
     const chMembers = guild.channels.cache.get(process.env.CH_MEMBERS);
     const chServer = guild.channels.cache.get(process.env.CH_SERVER);
 
-    if (!chAll || !chMembers || !chServer) return console.log("⚠️ Không tìm thấy channel counter.");
+    if (!chAll || !chMembers || !chServer)
+      return console.log("⚠️ Không tìm thấy channel counter.");
 
     const total = guild.memberCount;
     const humans = guild.members.cache.filter(m => !m.user.bot).size;
@@ -67,6 +68,8 @@ async function scanChannelsOnce(guild) {
   let fixed = 0;
 
   for (const channel of textChannels.values()) {
+    if (channel.parentId === "1433101513915367638") continue; // ngoại lệ ticket support
+
     const topic = channel.topic || "";
     const match = topic.match(/\(user\s*-\s*(\d+)\)/i);
     const overwrites = channel.permissionOverwrites.cache;
@@ -74,13 +77,10 @@ async function scanChannelsOnce(guild) {
     if (match) {
       const userId = match[1];
       try {
-        // Xóa tất cả overwrite khác trừ người đó
         for (const [targetId] of overwrites) {
-          if (targetId !== userId) {
+          if (targetId !== userId)
             await channel.permissionOverwrites.delete(targetId).catch(() => {});
-          }
         }
-        // Đảm bảo người đó có ViewChannel
         await channel.permissionOverwrites.edit(userId, { ViewChannel: true }).catch(() => {});
         console.log(`✅ Giữ riêng ${channel.name} cho ${userId}`);
         fixed++;
@@ -88,11 +88,9 @@ async function scanChannelsOnce(guild) {
         console.warn(`⚠️ Lỗi xử lý kênh ${channel.name}:`, err.message);
       }
     } else {
-      // Không có user tag → xóa toàn bộ overwrite người dùng
       for (const [targetId, overwrite] of overwrites) {
-        if (overwrite.type === 1) {
+        if (overwrite.type === 1)
           await channel.permissionOverwrites.delete(targetId).catch(() => {});
-        }
       }
     }
   }
@@ -110,10 +108,8 @@ async function applyRoleRestrictions(member) {
         if (!ch) continue;
 
         if (!hasRole) {
-          // Không có role → chặn
           await ch.permissionOverwrites.edit(member.id, { ViewChannel: false }).catch(() => {});
         } else {
-          // Có role → mở lại (xóa overwrite)
           const ow = ch.permissionOverwrites.cache.get(member.id);
           if (ow) await ch.permissionOverwrites.delete(member.id).catch(() => {});
         }
@@ -145,20 +141,17 @@ client.once("ready", async () => {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.members.fetch();
 
-  // Quét 1 lần khi start
   await scanChannelsOnce(guild);
 
-  // Cập nhật counter mỗi 5 phút
   await updateCounters(true);
   setInterval(() => updateCounters(true), 5 * 60 * 1000);
 });
 
 // ====== AUTO RESTART ======
-const RESTART_HOURS = 24;
 setInterval(() => {
   console.log("♻️ Restart theo chu kỳ 24h...");
   process.exit(0);
-}, RESTART_HOURS * 60 * 60 * 1000);
+}, 24 * 60 * 60 * 1000);
 
 // ====== KEEP ALIVE ======
 app.get("/", (req, res) => res.send("✅ Bot đang hoạt động"));
