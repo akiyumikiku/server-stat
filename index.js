@@ -4,10 +4,7 @@ const express = require("express");
 
 const app = express();
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
 const PORT = process.env.PORT || 3000;
@@ -41,17 +38,19 @@ const ROLE_BLOCK_MAP = [
 async function updateCounters(online = true) {
   try {
     const guild = await client.guilds.fetch(process.env.GUILD_ID);
-    await guild.members.fetch();
+    const members = await guild.members.fetch();
 
-    const chAll = guild.channels.cache.get(process.env.CH_ALL);
-    const chMembers = guild.channels.cache.get(process.env.CH_MEMBERS);
-    const chServer = guild.channels.cache.get(process.env.CH_SERVER);
+    const chAll = await guild.channels.fetch(process.env.CH_ALL).catch(() => null);
+    const chMembers = await guild.channels.fetch(process.env.CH_MEMBERS).catch(() => null);
+    const chServer = await guild.channels.fetch(process.env.CH_SERVER).catch(() => null);
 
-    if (!chAll || !chMembers || !chServer)
-      return console.log("⚠️ Không tìm thấy channel counter.");
+    if (!chAll || !chMembers || !chServer) {
+      console.log("⚠️ Không tìm thấy channel counter.");
+      return;
+    }
 
     const total = guild.memberCount;
-    const humans = guild.members.cache.filter(m => !m.user.bot).size;
+    const humans = members.filter(m => !m.user.bot).size;
 
     await Promise.allSettled([
       chAll.setName(`╭ All Members: ${total}`),
@@ -69,20 +68,16 @@ async function updateCounters(online = true) {
 async function scanChannelsOnce(guild) {
   console.log("🔍 Đang quét và đồng bộ quyền kênh theo topic...");
 
-  // Đảm bảo đã fetch đủ dữ liệu kênh
-  if (!guild.channels?.cache?.size) {
-    await guild.channels.fetch().catch(() => {});
-  }
-
-  const textChannels = guild.channels.cache.filter(ch => ch.isTextBased() && ch.type !== 4);
+  const channels = await guild.channels.fetch();
   let fixed = 0;
 
-  for (const channel of textChannels.values()) {
+  for (const [_, channel] of channels) {
+    if (!channel?.isTextBased?.() || channel.type === 4) continue;
     if (channel.parentId === "1433101513915367638") continue; // ngoại lệ ticket support
 
     const topic = channel.topic || "";
     const match = topic.match(/\(user\s*-\s*(\d+)\)/i);
-    const overwrites = channel.permissionOverwrites.cache;
+    const overwrites = await channel.permissionOverwrites.fetch().catch(() => new Map());
 
     if (match) {
       const userId = match[1];
@@ -114,15 +109,13 @@ async function applyRoleRestrictions(member) {
     for (const cfg of ROLE_BLOCK_MAP) {
       const hasRole = member.roles.cache.has(cfg.roleId);
       for (const chId of cfg.blockedChannels) {
-        const ch = member.guild.channels.cache.get(chId);
+        const ch = await member.guild.channels.fetch(chId).catch(() => null);
         if (!ch) continue;
 
         if (hasRole) {
-          // Nếu có role → chặn kênh
           await ch.permissionOverwrites.edit(member.id, { ViewChannel: false }).catch(() => {});
         } else {
-          // Nếu không có role → bỏ chặn
-          const ow = ch.permissionOverwrites.cache.get(member.id);
+          const ow = (await ch.permissionOverwrites.fetch().catch(() => new Map())).get(member.id);
           if (ow) await ch.permissionOverwrites.delete(member.id).catch(() => {});
         }
       }
@@ -132,7 +125,7 @@ async function applyRoleRestrictions(member) {
   }
 }
 
-// ====== EVENT: MEMBER JOIN ======
+// ====== EVENT ======
 client.on("guildMemberAdd", async member => {
   if (member.user.bot) return;
   console.log(`👋 Thành viên mới: ${member.user.tag}`);
@@ -140,19 +133,16 @@ client.on("guildMemberAdd", async member => {
   await updateCounters(true);
 });
 
-// ====== EVENT: MEMBER UPDATE ROLE ======
-client.on("guildMemberUpdate", async (oldMember, newMember) => {
+client.on("guildMemberUpdate", async (_, newMember) => {
   if (newMember.user.bot) return;
   await applyRoleRestrictions(newMember);
 });
 
-// ====== READY ======
 client.once("ready", async () => {
   console.log(`✅ Bot đăng nhập: ${client.user.tag}`);
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.members.fetch();
-  await guild.channels.fetch(); // ✅ fix lỗi undefined cache
 
   await scanChannelsOnce(guild);
   await updateCounters(true);
@@ -160,21 +150,18 @@ client.once("ready", async () => {
   setInterval(() => updateCounters(true), 5 * 60 * 1000);
 });
 
-// ====== AUTO RESTART ======
+// ====== AUTO RESTART & KEEP ALIVE ======
 setInterval(() => {
   console.log("♻️ Restart theo chu kỳ 24h...");
   process.exit(0);
 }, 24 * 60 * 60 * 1000);
 
-// ====== KEEP ALIVE ======
 app.get("/", (req, res) => res.send("✅ Bot đang hoạt động"));
 app.listen(PORT, () => console.log(`🌐 Keep-alive port ${PORT}`));
 
-// ====== SIGNALS ======
 process.on("SIGINT", async () => await updateCounters(false));
 process.on("SIGTERM", async () => await updateCounters(false));
 
-// ====== LOGIN ======
 if (!process.env.TOKEN) {
   console.error("❌ Thiếu TOKEN trong .env");
 } else {
