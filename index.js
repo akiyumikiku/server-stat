@@ -34,6 +34,20 @@ const ALLOWED_CHANNELS = [
 “1445395166666952714”
 ];
 
+/* ================== GET CHANNEL (FETCH IF NOT CACHED) ================== */
+async function getChannel(guild, channelId) {
+let channel = guild.channels.cache.get(channelId);
+if (!channel) {
+try {
+channel = await guild.channels.fetch(channelId);
+} catch (err) {
+console.error(`❌ Không thể fetch kênh ${channelId}:`, err.message);
+return null;
+}
+}
+return channel;
+}
+
 /* ================== APPLY PERMISSIONS ================== */
 async function applyUserPermissions(member) {
 try {
@@ -44,50 +58,63 @@ const hasSpecialRole = member.roles.cache.hasAny(…SPECIAL_ROLES);
 if (!hasSpecialRole) {
   // Không có role đặc biệt -> xóa tất cả overwrites của user
   const allChannels = [...BLOCKED_CHANNELS, ...ALLOWED_CHANNELS];
-  const tasks = [];
-
+  
   for (const chId of allChannels) {
-    const channel = guild.channels.cache.get(chId);
-    if (!channel) continue;
+    const channel = await getChannel(guild, chId);
+    if (!channel) {
+      console.warn(`⚠️ Không tìm thấy kênh ${chId}`);
+      continue;
+    }
     
     const overwrite = channel.permissionOverwrites.cache.get(member.id);
     if (overwrite) {
-      tasks.push(channel.permissionOverwrites.delete(member.id));
+      try {
+        await channel.permissionOverwrites.delete(member.id);
+        console.log(`🔓 Xóa overwrite ${member.user.tag} khỏi ${channel.name}`);
+      } catch (err) {
+        console.error(`❌ Lỗi xóa overwrite ${channel.name}:`, err.message);
+      }
     }
-  }
-
-  if (tasks.length > 0) {
-    await Promise.allSettled(tasks);
-    console.log(`🔓 Xóa tất cả overwrites của ${member.user.tag}`);
+    await new Promise(r => setTimeout(r, 300));
   }
   return;
 }
 
 // Có role đặc biệt -> áp dụng quyền
-const tasks = [];
+console.log(`🔄 Áp dụng quyền cho ${member.user.tag}...`);
 
 // Chặn các kênh blocked
 for (const chId of BLOCKED_CHANNELS) {
-  const channel = guild.channels.cache.get(chId);
-  if (!channel) continue;
-  tasks.push(
-    channel.permissionOverwrites.edit(member.id, { ViewChannel: false })
-  );
+  const channel = await getChannel(guild, chId);
+  if (!channel) {
+    console.warn(`⚠️ Không tìm thấy kênh blocked ${chId}`);
+    continue;
+  }
+  
+  try {
+    await channel.permissionOverwrites.edit(member.id, { ViewChannel: false });
+    console.log(`🔒 Chặn ${member.user.tag} khỏi ${channel.name} (${chId})`);
+  } catch (err) {
+    console.error(`❌ Lỗi chặn ${channel.name}:`, err.message);
+  }
+  await new Promise(r => setTimeout(r, 300));
 }
 
 // Cho phép các kênh allowed
 for (const chId of ALLOWED_CHANNELS) {
-  const channel = guild.channels.cache.get(chId);
-  if (!channel) continue;
-  tasks.push(
-    channel.permissionOverwrites.edit(member.id, { ViewChannel: true })
-  );
-}
-
-// Thực hiện tất cả cùng lúc
-if (tasks.length > 0) {
-  await Promise.allSettled(tasks);
-  console.log(`✅ Áp dụng quyền cho ${member.user.tag}`);
+  const channel = await getChannel(guild, chId);
+  if (!channel) {
+    console.warn(`⚠️ Không tìm thấy kênh allowed ${chId}`);
+    continue;
+  }
+  
+  try {
+    await channel.permissionOverwrites.edit(member.id, { ViewChannel: true });
+    console.log(`✅ Cho phép ${member.user.tag} xem ${channel.name} (${chId})`);
+  } catch (err) {
+    console.error(`❌ Lỗi cho phép ${channel.name}:`, err.message);
+  }
+  await new Promise(r => setTimeout(r, 300));
 }
 ```
 
@@ -102,8 +129,11 @@ console.log(“🧹 Xóa tất cả overwrites của user trong các kênh…”
 const allChannels = […BLOCKED_CHANNELS, …ALLOWED_CHANNELS];
 
 for (const chId of allChannels) {
-const channel = guild.channels.cache.get(chId);
-if (!channel) continue;
+const channel = await getChannel(guild, chId);
+if (!channel) {
+console.warn(`⚠️ Không tìm thấy kênh ${chId} khi clean`);
+continue;
+}
 
 ```
 const tasks = [];
